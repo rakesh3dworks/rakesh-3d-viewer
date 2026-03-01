@@ -319,12 +319,21 @@ showUI.style.display="none";
 
 <script>
 function checkPassword(){
-const pass="rakesh123";
-if(passwordInput.value===pass){
-loginOverlay.style.display="none";
-app.style.display="block";
-}else{
-errorMsg.innerText="Wrong password!";
+    const pass="rakesh123";
+
+    if(passwordInput.value===pass){
+
+        loginOverlay.style.display="none";
+        app.style.display="block";
+
+        // 🔥 Force proper resize AFTER app becomes visible
+        setTimeout(()=>{
+            window.dispatchEvent(new Event('resize'));
+        }, 100);
+
+    }else{
+        errorMsg.innerText="Wrong password!";
+    }
 }
 }
 </script>
