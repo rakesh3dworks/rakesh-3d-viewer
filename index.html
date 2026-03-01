@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Rakesh 3D Works - Pro Viewer</title>
+
+<style>
+body{
+  margin:0;
+  overflow:hidden;
+  font-family:Arial, sans-serif;
+  display:flex;
+  background:#474346;
+}
+
+#ui{
+  width:260px;
+  height:100vh;
+  background:rgba(20,20,20,0.97);
+  color:white;
+  padding:20px;
+  box-sizing:border-box;
+  overflow-y:auto;
+}
+
+#ui h3{ margin-top:0; font-weight:normal; }
+
+label{
+  display:block;
+  margin-top:14px;
+  font-size:13px;
+}
+
+input[type=range], select{
+  width:100%;
+  margin-top:6px;
+}
+
+button{
+  width:100%;
+  margin-top:10px;
+  padding:8px;
+  border:none;
+  background:#1e1e1e;
+  color:white;
+  border-radius:4px;
+  cursor:pointer;
+}
+
+button:hover{ background:#333; }
+
+#viewer{ flex:1; position:relative; }
+
+#showUIButton{
+  position:absolute;
+  top:20px;
+  left:20px;
+  display:none;
+  z-index:20;
+  padding:8px 12px;
+  background:#1e1e1e;
+  color:white;
+  border:none;
+  border-radius:4px;
+  cursor:pointer;
+}
+
+#watermark{
+  position:absolute;
+  bottom:20px;
+  right:30px;
+  color:white;
+  opacity:0.35;
+  pointer-events:none;
+}
+</style>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+
+<div id="ui">
+<h3>Rakesh 3D Viewer</h3>
+
+<label>Zoom</label>
+<input type="range" min="1" max="15" step="0.1" value="6" id="zoomSlider">
+
+<label>Manual Rotation</label>
+<input type="range" min="0" max="360" step="1" value="0" id="rotationSlider">
+
+<label>Turntable Speed</label>
+<input type="range" min="0" max="0.1" step="0.005" value="0.01" id="speedSlider">
+
+<label>Light Intensity</label>
+<input type="range" min="0" max="5" step="0.1" value="0.5" id="lightSlider">
+
+<label>Light Rotation</label>
+<input type="range" min="0" max="360" step="1" value="45" id="lightRotateSlider">
+
+<label>Background</label>
+<select id="bgSelect">
+<option value="white">White</option>
+<option value="grey" selected>Grey</option>
+<option value="black">Black</option>
+</select>
+
+<button onclick="toggleTextureMode()">Toggle Texture / Clay</button>
+<button onclick="toggleRotate()">Auto Rotate</button>
+<button onclick="rotateLight()">Auto Light Rotate</button>
+<button onclick="autoFrame()">Auto Frame</button>
+<button onclick="takeShot()">Screenshot</button>
+<button onclick="toggleFullscreen()">Fullscreen</button>
+<button onclick="hideUI()">Hide UI</button>
+
+</div>
+
+<div id="viewer">
+<button id="showUIButton" onclick="showUI()">Show UI</button>
+<div id="watermark">Rakesh 3D Works</div>
+</div>
+
+<script type="module">
+
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { RGBELoader } from "three/addons/loaders/RGBELoader.js";
+
+let model;
+let autoRotate=false;
+let rotateLightFlag=false;
+let turntableSpeed=0.01;
+let keyLight;
+let originalMaterials=[];
+let clayMode=false;
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color("#474346");
+
+const camera=new THREE.PerspectiveCamera(
+60,
+(window.innerWidth-260)/window.innerHeight,
+0.1,
+1000
+);
+
+const renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});
+renderer.shadowMap.enabled=true;
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.4;
+renderer.setSize(window.innerWidth-260,window.innerHeight);
+document.getElementById("viewer").appendChild(renderer.domElement);
+
+const controls=new OrbitControls(camera,renderer.domElement);
+controls.enableDamping=true;
+
+//////////////// HDR //////////////////
+
+const pmrem=new THREE.PMREMGenerator(renderer);
+new RGBELoader().setPath('./').load('studio.hdr',tex=>{
+  const env=pmrem.fromEquirectangular(tex).texture;
+  scene.environment=env;
+  tex.dispose();
+  pmrem.dispose();
+});
+
+//////////////// LIGHT //////////////////
+
+const hemi=new THREE.HemisphereLight(0xffffff,0x222222,1.2);
+scene.add(hemi);
+
+keyLight=new THREE.DirectionalLight(0xffffff,0.5);
+keyLight.position.set(5,5,5);
+keyLight.castShadow=true;
+scene.add(keyLight);
+
+//////////////// FLOOR //////////////////
+
+const floor=new THREE.Mesh(
+new THREE.PlaneGeometry(50,50),
+new THREE.ShadowMaterial({opacity:0.25})
+);
+floor.rotation.x=-Math.PI/2;
+floor.receiveShadow=true;
+scene.add(floor);
+
+//////////////// MODEL //////////////////
+
+const loader=new GLTFLoader();
+loader.load('model.glb',gltf=>{
+  model=gltf.scene;
+
+  model.traverse(c=>{
+    if(c.isMesh){
+      originalMaterials.push({mesh:c, material:c.material});
+      c.castShadow=true;
+      c.material.envMapIntensity=2.0;
+    }
+  });
+
+  scene.add(model);
+  autoFrame();
+});
+
+//////////////// TEXTURE / CLAY TOGGLE //////////////////
+
+window.toggleTextureMode=()=>{
+
+  if(!model) return;
+
+  clayMode=!clayMode;
+
+  if(clayMode){
+
+    model.traverse(c=>{
+      if(c.isMesh){
+        c.material=new THREE.MeshStandardMaterial({
+          color:0xdddddd,
+          roughness:0.8,
+          metalness:0.0
+        });
+      }
+    });
+
+  }else{
+
+    originalMaterials.forEach(entry=>{
+      entry.mesh.material=entry.material;
+    });
+
+  }
+};
+
+//////////////// FUNCTIONS //////////////////
+
+function autoFrame(){
+  if(!model)return;
+  const box=new THREE.Box3().setFromObject(model);
+  const size=box.getSize(new THREE.Vector3());
+  const center=box.getCenter(new THREE.Vector3());
+
+  model.position.x-=center.x;
+  model.position.z-=center.z;
+  model.position.y-=box.min.y;
+
+  const maxDim=Math.max(size.x,size.y,size.z);
+  const fov=camera.fov*(Math.PI/180);
+  const camZ=Math.abs(maxDim/2/Math.tan(fov/2));
+
+  camera.position.set(0,size.y*0.6,camZ*1.2);
+  controls.target.set(0,size.y*0.5,0);
+  controls.update();
+}
+
+function updateRendererSize(){
+  const uiVisible=document.getElementById('ui').style.display!=='none';
+  const width=uiVisible?window.innerWidth-260:window.innerWidth;
+  const height=window.innerHeight;
+  camera.aspect=width/height;
+  camera.updateProjectionMatrix();
+  renderer.setSize(width,height);
+}
+
+window.toggleRotate=()=>autoRotate=!autoRotate;
+window.rotateLight=()=>rotateLightFlag=!rotateLightFlag;
+
+window.takeShot=()=>{
+  const a=document.createElement('a');
+  a.download='Rakesh3D.png';
+  a.href=renderer.domElement.toDataURL();
+  a.click();
+};
+
+window.toggleFullscreen=()=>{
+  if(!document.fullscreenElement)document.body.requestFullscreen();
+  else document.exitFullscreen();
+};
+
+window.hideUI=()=>{
+  document.getElementById('ui').style.display='none';
+  document.getElementById('showUIButton').style.display='block';
+  updateRendererSize();
+};
+
+window.showUI=()=>{
+  document.getElementById('ui').style.display='block';
+  document.getElementById('showUIButton').style.display='none';
+  updateRendererSize();
+};
+
+//////////////// SLIDERS //////////////////
+
+document.getElementById("zoomSlider").addEventListener("input",e=>{
+  camera.position.z=e.target.value;
+});
+
+document.getElementById("rotationSlider").addEventListener("input",e=>{
+  if(model)model.rotation.y=THREE.MathUtils.degToRad(e.target.value);
+});
+
+document.getElementById("speedSlider").addEventListener("input",e=>{
+  turntableSpeed=parseFloat(e.target.value);
+});
+
+document.getElementById("lightSlider").addEventListener("input",e=>{
+  keyLight.intensity=parseFloat(e.target.value);
+});
+
+document.getElementById("lightRotateSlider").addEventListener("input",e=>{
+  const angle=THREE.MathUtils.degToRad(e.target.value);
+  keyLight.position.x=Math.sin(angle)*5;
+  keyLight.position.z=Math.cos(angle)*5;
+});
+
+document.getElementById("bgSelect").addEventListener("change",e=>{
+  if(e.target.value==="white")scene.background=new THREE.Color(0xffffff);
+  if(e.target.value==="grey")scene.background=new THREE.Color("#474346");
+  if(e.target.value==="black")scene.background=new THREE.Color(0x000000);
+});
+
+//////////////// ANIMATE //////////////////
+
+function animate(){
+  requestAnimationFrame(animate);
+
+  if(autoRotate&&model){
+    model.rotation.y+=turntableSpeed;
+  }
+
+  if(rotateLightFlag){
+    const t=Date.now()*0.001;
+    keyLight.position.x=Math.sin(t)*5;
+    keyLight.position.z=Math.cos(t)*5;
+  }
+
+  controls.update();
+  renderer.render(scene,camera);
+}
+
+animate();
+window.addEventListener('resize',updateRendererSize);
+
+</script>
+</body>
+</html>
