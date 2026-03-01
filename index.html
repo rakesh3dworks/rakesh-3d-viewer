@@ -13,7 +13,7 @@ body{
   background:#474346;
 }
 
-/* ===== PASSWORD OVERLAY ===== */
+/* PASSWORD OVERLAY ONLY */
 #loginOverlay{
   position:fixed;
   inset:0;
@@ -64,14 +64,7 @@ body{
   margin-top:8px;
 }
 
-/* ===== APP WRAPPER ===== */
-#app{
-  display:none;
-  width:100%;
-  display:flex;
-}
-
-/* ===== ORIGINAL STYLES BELOW (UNCHANGED) ===== */
+/* ===== YOUR ORIGINAL STYLES BELOW (UNCHANGED) ===== */
 
 #ui{
   width:260px;
@@ -146,7 +139,7 @@ button:hover{ background:#333; }
 </head>
 <body>
 
-<!-- PASSWORD -->
+<!-- PASSWORD OVERLAY -->
 <div id="loginOverlay">
   <div class="loginBox">
     <h2>Client Access</h2>
@@ -156,10 +149,7 @@ button:hover{ background:#333; }
   </div>
 </div>
 
-<!-- APP WRAPS YOUR ORIGINAL VIEWER -->
-<div id="app">
-
-<!-- ===== YOUR ORIGINAL HTML START ===== -->
+<!-- ===== YOUR ORIGINAL HTML STARTS HERE (UNCHANGED) ===== -->
 
 <div id="ui">
 <h3>Rakesh 3D Viewer</h3>
@@ -201,27 +191,17 @@ button:hover{ background:#333; }
 <div id="watermark">Rakesh 3D Works</div>
 </div>
 
-</div>
-
-<!-- PASSWORD LOGIC -->
+<!-- PASSWORD SCRIPT -->
 <script>
 function checkPassword(){
   const correctPassword="rakesh123";
 
   if(document.getElementById("passwordInput").value===correctPassword){
-
     document.getElementById("loginOverlay").style.display="none";
-    document.getElementById("app").style.display="flex";
-
-    // IMPORTANT: force resize so canvas calculates correctly
-    setTimeout(()=>{
-      window.dispatchEvent(new Event('resize'));
-    },100);
-
   }else{
     document.getElementById("errorMsg").innerText="Wrong password!";
   }
 }
 </script>
 
-<!-- ===== PASTE YOUR ORIGINAL THREE.JS MODULE SCRIPT BELOW EXACTLY AS IS ===== -->
+<!-- ===== NOW PASTE YOUR ORIGINAL <script type="module"> BELOW EXACTLY ===== -->
