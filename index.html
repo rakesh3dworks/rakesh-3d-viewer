@@ -13,59 +13,6 @@ body{
   background:#474346;
 }
 
-/* PASSWORD OVERLAY ONLY */
-#loginOverlay{
-  position:fixed;
-  inset:0;
-  background:linear-gradient(135deg,#111,#222);
-  display:flex;
-  justify-content:center;
-  align-items:center;
-  z-index:9999;
-}
-
-.loginBox{
-  background:#1e1e1e;
-  padding:40px;
-  border-radius:12px;
-  width:320px;
-  text-align:center;
-  box-shadow:0 0 40px rgba(0,0,0,0.6);
-}
-
-.loginBox h2{
-  color:white;
-  margin-bottom:20px;
-  font-weight:normal;
-}
-
-.loginBox input{
-  width:100%;
-  padding:12px;
-  border:none;
-  border-radius:6px;
-  margin-bottom:15px;
-}
-
-.loginBox button{
-  width:100%;
-  padding:12px;
-  border:none;
-  border-radius:6px;
-  background:#4cafef;
-  color:white;
-  font-weight:bold;
-  cursor:pointer;
-}
-
-#errorMsg{
-  color:red;
-  font-size:13px;
-  margin-top:8px;
-}
-
-/* ===== YOUR ORIGINAL STYLES BELOW (UNCHANGED) ===== */
-
 #ui{
   width:260px;
   height:100vh;
@@ -139,18 +86,6 @@ button:hover{ background:#333; }
 </head>
 <body>
 
-<!-- PASSWORD OVERLAY -->
-<div id="loginOverlay">
-  <div class="loginBox">
-    <h2>Client Access</h2>
-    <input type="password" id="passwordInput" placeholder="Enter password">
-    <button onclick="checkPassword()">Login</button>
-    <div id="errorMsg"></div>
-  </div>
-</div>
-
-<!-- ===== YOUR ORIGINAL HTML STARTS HERE (UNCHANGED) ===== -->
-
 <div id="ui">
 <h3>Rakesh 3D Viewer</h3>
 
@@ -191,17 +126,228 @@ button:hover{ background:#333; }
 <div id="watermark">Rakesh 3D Works</div>
 </div>
 
-<!-- PASSWORD SCRIPT -->
-<script>
-function checkPassword(){
-  const correctPassword="rakesh123";
+<script type="module">
 
-  if(document.getElementById("passwordInput").value===correctPassword){
-    document.getElementById("loginOverlay").style.display="none";
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { RGBELoader } from "three/addons/loaders/RGBELoader.js";
+
+let model;
+let autoRotate=false;
+let rotateLightFlag=false;
+let turntableSpeed=0.01;
+let keyLight;
+let originalMaterials=[];
+let clayMode=false;
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color("#474346");
+
+const camera=new THREE.PerspectiveCamera(
+60,
+(window.innerWidth-260)/window.innerHeight,
+0.1,
+1000
+);
+
+const renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});
+renderer.shadowMap.enabled=true;
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.4;
+renderer.setSize(window.innerWidth-260,window.innerHeight);
+document.getElementById("viewer").appendChild(renderer.domElement);
+
+const controls=new OrbitControls(camera,renderer.domElement);
+controls.enableDamping=true;
+
+//////////////// HDR //////////////////
+
+const pmrem=new THREE.PMREMGenerator(renderer);
+new RGBELoader().setPath('./').load('studio.hdr',tex=>{
+  const env=pmrem.fromEquirectangular(tex).texture;
+  scene.environment=env;
+  tex.dispose();
+  pmrem.dispose();
+});
+
+//////////////// LIGHT //////////////////
+
+const hemi=new THREE.HemisphereLight(0xffffff,0x222222,1.2);
+scene.add(hemi);
+
+keyLight=new THREE.DirectionalLight(0xffffff,0.5);
+keyLight.position.set(5,5,5);
+keyLight.castShadow=true;
+scene.add(keyLight);
+
+//////////////// FLOOR //////////////////
+
+const floor=new THREE.Mesh(
+new THREE.PlaneGeometry(50,50),
+new THREE.ShadowMaterial({opacity:0.25})
+);
+floor.rotation.x=-Math.PI/2;
+floor.receiveShadow=true;
+scene.add(floor);
+
+//////////////// MODEL //////////////////
+
+const loader=new GLTFLoader();
+loader.load('model.glb',gltf=>{
+  model=gltf.scene;
+
+  model.traverse(c=>{
+    if(c.isMesh){
+      originalMaterials.push({mesh:c, material:c.material});
+      c.castShadow=true;
+      c.material.envMapIntensity=2.0;
+    }
+  });
+
+  scene.add(model);
+  autoFrame();
+});
+
+//////////////// TEXTURE / CLAY TOGGLE //////////////////
+
+window.toggleTextureMode=()=>{
+
+  if(!model) return;
+
+  clayMode=!clayMode;
+
+  if(clayMode){
+
+    model.traverse(c=>{
+      if(c.isMesh){
+        c.material=new THREE.MeshStandardMaterial({
+          color:0xdddddd,
+          roughness:0.8,
+          metalness:0.0
+        });
+      }
+    });
+
   }else{
-    document.getElementById("errorMsg").innerText="Wrong password!";
-  }
-}
-</script>
 
-<!-- ===== NOW PASTE YOUR ORIGINAL <script type="module"> BELOW EXACTLY ===== -->
+    originalMaterials.forEach(entry=>{
+      entry.mesh.material=entry.material;
+    });
+
+  }
+};
+
+//////////////// FUNCTIONS //////////////////
+
+function autoFrame(){
+  if(!model)return;
+  const box=new THREE.Box3().setFromObject(model);
+  const size=box.getSize(new THREE.Vector3());
+  const center=box.getCenter(new THREE.Vector3());
+
+  model.position.x-=center.x;
+  model.position.z-=center.z;
+  model.position.y-=box.min.y;
+
+  const maxDim=Math.max(size.x,size.y,size.z);
+  const fov=camera.fov*(Math.PI/180);
+  const camZ=Math.abs(maxDim/2/Math.tan(fov/2));
+
+  camera.position.set(0,size.y*0.6,camZ*1.2);
+  controls.target.set(0,size.y*0.5,0);
+  controls.update();
+}
+
+function updateRendererSize(){
+  const uiVisible=document.getElementById('ui').style.display!=='none';
+  const width=uiVisible?window.innerWidth-260:window.innerWidth;
+  const height=window.innerHeight;
+  camera.aspect=width/height;
+  camera.updateProjectionMatrix();
+  renderer.setSize(width,height);
+}
+
+window.toggleRotate=()=>autoRotate=!autoRotate;
+window.rotateLight=()=>rotateLightFlag=!rotateLightFlag;
+
+window.takeShot=()=>{
+  const a=document.createElement('a');
+  a.download='Rakesh3D.png';
+  a.href=renderer.domElement.toDataURL();
+  a.click();
+};
+
+window.toggleFullscreen=()=>{
+  if(!document.fullscreenElement)document.body.requestFullscreen();
+  else document.exitFullscreen();
+};
+
+window.hideUI=()=>{
+  document.getElementById('ui').style.display='none';
+  document.getElementById('showUIButton').style.display='block';
+  updateRendererSize();
+};
+
+window.showUI=()=>{
+  document.getElementById('ui').style.display='block';
+  document.getElementById('showUIButton').style.display='none';
+  updateRendererSize();
+};
+
+//////////////// SLIDERS //////////////////
+
+document.getElementById("zoomSlider").addEventListener("input",e=>{
+  camera.position.z=e.target.value;
+});
+
+document.getElementById("rotationSlider").addEventListener("input",e=>{
+  if(model)model.rotation.y=THREE.MathUtils.degToRad(e.target.value);
+});
+
+document.getElementById("speedSlider").addEventListener("input",e=>{
+  turntableSpeed=parseFloat(e.target.value);
+});
+
+document.getElementById("lightSlider").addEventListener("input",e=>{
+  keyLight.intensity=parseFloat(e.target.value);
+});
+
+document.getElementById("lightRotateSlider").addEventListener("input",e=>{
+  const angle=THREE.MathUtils.degToRad(e.target.value);
+  keyLight.position.x=Math.sin(angle)*5;
+  keyLight.position.z=Math.cos(angle)*5;
+});
+
+document.getElementById("bgSelect").addEventListener("change",e=>{
+  if(e.target.value==="white")scene.background=new THREE.Color(0xffffff);
+  if(e.target.value==="grey")scene.background=new THREE.Color("#474346");
+  if(e.target.value==="black")scene.background=new THREE.Color(0x000000);
+});
+
+//////////////// ANIMATE //////////////////
+
+function animate(){
+  requestAnimationFrame(animate);
+
+  if(autoRotate&&model){
+    model.rotation.y+=turntableSpeed;
+  }
+
+  if(rotateLightFlag){
+    const t=Date.now()*0.001;
+    keyLight.position.x=Math.sin(t)*5;
+    keyLight.position.z=Math.cos(t)*5;
+  }
+
+  controls.update();
+  renderer.render(scene,camera);
+}
+
+animate();
+window.addEventListener('resize',updateRendererSize);
+
+</script>
+</body>
+</html>
